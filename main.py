@@ -217,49 +217,61 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50):
             raise Exception(f"Failed to check EditText: {str(e)}")
         
         if is_edit:
+            print(f"[DEBUG] EditText detected, pasting userId: {user_id}")
             for _ in range(10):
                 try:
                     focused.set_text("")
                     focused.set_text(user_id)
                     try:
                         if (focused.get_text() or "") == user_id:
+                            time.sleep(0.5)
+                            print(f"[DEBUG] Text pasted, tapping lupa...")
                             driver.click(*TAP_LUPA)
+                            print(f"[DEBUG] Tap lupa completed, starting OCR scan...")
                             break
                     except Exception:
                         pass
                     time.sleep(0.1)
                 except Exception as e:
-                    if not simple_log:
-                        print(f"[WARNING] Failed to set text: {str(e)}")
+                    print(f"[WARNING] Failed to set text: {str(e)}")
                     break
         
+        print(f"[DEBUG] Starting OCR scan loop (max {max_attempts} attempts)")
         for attempt in range(max_attempts):
             if not running[0]:
                 break
             
+            if attempt % 10 == 0 and attempt > 0:
+                print(f"[DEBUG] OCR scan attempt {attempt}/{max_attempts}")
+            
             try:
                 xml_text = dump_xml_text(driver)
-                result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
-                if isinstance(result, str):
-                    status = result
-                    break
+                if xml_text and not xml_text.startswith("Error"):
+                    result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
+                    if isinstance(result, str):
+                        print(f"[DEBUG] Keyword detected from XML: {result}")
+                        status = result
+                        break
             except Exception as e:
-                if not simple_log:
-                    print(f"[WARNING] XML dump failed: {str(e)}")
+                print(f"[WARNING] XML dump failed: {str(e)}")
             
             for area in areas:
                 try:
                     ocr_text = ocr_area(driver, area)
-                    result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
-                    if isinstance(result, str):
-                        status = result
-                        break
+                    if ocr_text and not ocr_text.startswith("Error"):
+                        result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
+                        if isinstance(result, str):
+                            print(f"[DEBUG] Keyword detected from OCR: {result}")
+                            status = result
+                            break
                 except Exception as e:
-                    if not simple_log:
-                        print(f"[WARNING] OCR failed: {str(e)}")
+                    print(f"[WARNING] OCR failed: {str(e)}")
             if status:
                 break
             time.sleep(0.2)
+        
+        if not status:
+            print(f"[DEBUG] No keyword detected after {max_attempts} attempts, returning 'Tidak terdeteksi'")
     except Exception as e:
         error_msg = str(e)
         if not simple_log:
