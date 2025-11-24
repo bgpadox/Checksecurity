@@ -1,0 +1,5 @@
+pytesseract>=0.3.10
+colorama>=0.4.6
+uiautomator2>=2.16.25
+flask>=2.3.0
+
