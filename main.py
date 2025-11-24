@@ -241,35 +241,48 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50):
             if not running[0]:
                 break
             
-            if attempt % 10 == 0 and attempt > 0:
+            if attempt % 10 == 0:
                 print(f"[DEBUG] OCR scan attempt {attempt}/{max_attempts}")
             
             try:
                 xml_text = dump_xml_text(driver)
-                if xml_text and not xml_text.startswith("Error"):
-                    if attempt == 0 or attempt % 10 == 0:
-                        print(f"[DEBUG] XML text (first 200 chars): {xml_text[:200]}")
-                    result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
-                    if isinstance(result, str):
-                        print(f"[DEBUG] Keyword detected from XML: {result}")
-                        status = result
-                        break
+                if xml_text:
+                    if xml_text.startswith("Error"):
+                        print(f"[WARNING] XML dump error: {xml_text}")
+                    else:
+                        if attempt < 3 or attempt % 10 == 0:
+                            print(f"[DEBUG] XML text (first 300 chars): {xml_text[:300]}")
+                        result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
+                        if isinstance(result, str):
+                            print(f"[DEBUG] Keyword detected from XML: {result}")
+                            status = result
+                            break
+                else:
+                    if attempt < 3:
+                        print(f"[WARNING] XML text is empty")
             except Exception as e:
                 print(f"[WARNING] XML dump failed: {str(e)}")
             
             for area_idx, area in enumerate(areas):
                 try:
                     ocr_text = ocr_area(driver, area)
-                    if ocr_text and not ocr_text.startswith("Error"):
-                        if attempt == 0 or attempt % 10 == 0:
-                            print(f"[DEBUG] OCR Area {area_idx + 1} text: {ocr_text[:100]}")
-                        result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
-                        if isinstance(result, str):
-                            print(f"[DEBUG] Keyword detected from OCR: {result}")
-                            status = result
-                            break
+                    if ocr_text:
+                        if ocr_text.startswith("Error"):
+                            if attempt < 3:
+                                print(f"[WARNING] OCR Area {area_idx + 1} error: {ocr_text}")
+                        else:
+                            if attempt < 3 or attempt % 10 == 0:
+                                print(f"[DEBUG] OCR Area {area_idx + 1} text: {ocr_text[:150]}")
+                            result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
+                            if isinstance(result, str):
+                                print(f"[DEBUG] Keyword detected from OCR: {result}")
+                                status = result
+                                break
+                    else:
+                        if attempt < 3:
+                            print(f"[WARNING] OCR Area {area_idx + 1} text is empty")
                 except Exception as e:
-                    print(f"[WARNING] OCR failed: {str(e)}")
+                    print(f"[WARNING] OCR Area {area_idx + 1} failed: {str(e)}")
             if status:
                 break
             time.sleep(0.2)
