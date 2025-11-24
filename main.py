@@ -247,6 +247,8 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50):
             try:
                 xml_text = dump_xml_text(driver)
                 if xml_text and not xml_text.startswith("Error"):
+                    if attempt == 0 or attempt % 10 == 0:
+                        print(f"[DEBUG] XML text (first 200 chars): {xml_text[:200]}")
                     result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
                     if isinstance(result, str):
                         print(f"[DEBUG] Keyword detected from XML: {result}")
@@ -255,10 +257,12 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50):
             except Exception as e:
                 print(f"[WARNING] XML dump failed: {str(e)}")
             
-            for area in areas:
+            for area_idx, area in enumerate(areas):
                 try:
                     ocr_text = ocr_area(driver, area)
                     if ocr_text and not ocr_text.startswith("Error"):
+                        if attempt == 0 or attempt % 10 == 0:
+                            print(f"[DEBUG] OCR Area {area_idx + 1} text: {ocr_text[:100]}")
                         result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
                         if isinstance(result, str):
                             print(f"[DEBUG] Keyword detected from OCR: {result}")
