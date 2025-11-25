@@ -368,11 +368,19 @@ def connect_device(device_id):
         print(f"[ERROR] Failed to connect to {device_id}: {str(e)}")
         return False
 
+connect_threads = []
 for device_id in all_devices:
-    connect_device(device_id)
+    thread = threading.Thread(target=connect_device, args=(device_id,))
+    connect_threads.append(thread)
+    thread.start()
+
+for thread in connect_threads:
+    thread.join()
 
 if not device_pool:
     sys.exit("Gagal connect ke semua device.")
+
+print(f"[INIT] Successfully connected to {len(device_pool)} device(s)")
 
 def monitor_devices():
     while True:
@@ -479,26 +487,17 @@ def process_request(user_id):
                 status = check_account(user_id, device["driver"], ocr_areas, SIMPLE_LOG)
                 
                 if status == "NO_EDITTEXT":
-                    print(f"[API] Device {device['id']} tidak terdeteksi EditText, moving to next device...")
+                    print(f"[API] Device {device['id']} tidak terdeteksi EditText, resetting...")
                     tried_devices.append(device["id"])
+                    reset_success = reset_device(device["driver"], device["id"], SIMPLE_LOG)
+                    if reset_success:
+                        device["status"] = "ready"
+                        print(f"[API] Device {device['id']} reset berhasil, status: ready")
+                    else:
+                        print(f"[API] Device {device['id']} reset gagal")
                     with device_available:
                         device["busy"] = False
                         device_available.notify()
-                    
-                    def reset_in_background(drv, dev_id, dev):
-                        try:
-                            print(f"[RESET] Starting background reset for device {dev_id}")
-                            reset_success = reset_device(drv, dev_id, SIMPLE_LOG)
-                            if reset_success:
-                                dev["status"] = "ready"
-                                print(f"[RESET] Device {dev_id} reset berhasil, status: ready")
-                            else:
-                                print(f"[RESET] Device {dev_id} reset gagal")
-                        except Exception as e:
-                            print(f"[RESET] Error resetting device {dev_id}: {str(e)}")
-                    
-                    reset_thread = threading.Thread(target=reset_in_background, args=(device["driver"], device["id"], device), daemon=True)
-                    reset_thread.start()
                     continue
                 
                 result = {
