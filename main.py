@@ -83,7 +83,7 @@ def finalize_check(user_id, driver, simple_log, running, status_name, return_sta
         running[0] = False
         sys.exit(0)
 
-def check_keywords(text, user_id, driver, simple_log, running, return_status=False):
+def check_keywords(text, user_id, driver, simple_log, running, return_status=False, is_xml=False):
     normalized_text = normalize_text(text.lower())
     normalized_no_space = normalized_text.replace(' ', '').replace('\n', '').replace('\t', '')
     
@@ -93,7 +93,8 @@ def check_keywords(text, user_id, driver, simple_log, running, return_status=Fal
     detected_polos = 'anda belum menghubungkan' in normalized_text or 'andabelummenghubungkan' in normalized_no_space
     detected_family = 'kepala family' in normalized_text or 'kepalafamily' in normalized_no_space or 'sandi anggota' in normalized_text or 'sandianggota' in normalized_no_space
     detected_belum_sandi = 'anda belum mengatur kata sandi' in normalized_text or 'andabelummengaturkatasandi' in normalized_no_space
-    detected_tidak_ada = 'pengguna ini tidak ada' in normalized_text or 'penggunainitidakada' in normalized_no_space
+    detected_tidak_ada_xml = is_xml and ('301' in normalized_text or 'pengguna ini tidak ada' in normalized_text or 'pengguna ini tidak ada.' in normalized_text)
+    detected_tidak_ada = not is_xml and ('pengguna ini tidak ada' in normalized_text or 'penggunainitidakada' in normalized_no_space or 'pengguna ini tidak ada.' in normalized_text)
     detected_perbarui = '278' in normalized_text or 'harap perbarui ke versi baru' in normalized_text or 'harapperbaruikeversibaru' in normalized_no_space
     
     if detected_polos:
@@ -138,11 +139,25 @@ def check_keywords(text, user_id, driver, simple_log, running, return_status=Fal
         sys.stdout.flush()
         return finalize_check(user_id, driver, simple_log, running, "Belum atur sandi", return_status)
     
+    if detected_tidak_ada_xml:
+        try:
+            driver.click(*TAP_BACK)
+            if not simple_log:
+                print(f"[ACTION] Tap back berhasil di {TAP_BACK} (XML detection)")
+            sys.stdout.flush()
+        except Exception as e:
+            if not simple_log:
+                print(f"[ERROR] Gagal melakukan tap: {str(e)}")
+            sys.stdout.flush()
+        print(f"{Fore.RED}{user_id} | Akun tidak ada{Style.RESET_ALL}")
+        sys.stdout.flush()
+        return finalize_check(user_id, driver, simple_log, running, "Akun tidak ada", return_status)
+    
     if detected_tidak_ada:
         try:
             driver.click(*TAP_TENTUKAN)
             if not simple_log:
-                print(f"[ACTION] Tap Tentukan berhasil di {TAP_TENTUKAN}")
+                print(f"[ACTION] Tap Tentukan berhasil di {TAP_TENTUKAN} (OCR detection)")
             sys.stdout.flush()
         except Exception as e:
             if not simple_log:
@@ -267,7 +282,7 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50, check_edi
             
             try:
                 xml_text = dump_xml_text(driver)
-                result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True)
+                result = check_keywords(xml_text, user_id, driver, simple_log, running, return_status=True, is_xml=True)
                 if isinstance(result, str):
                     status = result
                     break
@@ -278,7 +293,7 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50, check_edi
             for area in areas:
                 try:
                     ocr_text = ocr_area(driver, area)
-                    result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True)
+                    result = check_keywords(ocr_text, user_id, driver, simple_log, running, return_status=True, is_xml=False)
                     if isinstance(result, str):
                         status = result
                         break
