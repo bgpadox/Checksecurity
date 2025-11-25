@@ -20,6 +20,7 @@ TAP_LUPA = (850, 350)
 TAP_CLOSE_VERIF = (960, 225)
 TAP_TENTUKAN = (640, 450)
 TAP_BACK = (65, 35)
+TAP_ID_LOGIN = (60, 150)
 OCR_AREA = (515, 230, 755, 275)
 OCR_AREA_2 = (360, 220, 900, 400)
 
@@ -199,7 +200,33 @@ def check_keywords(text, user_id, driver, simple_log, running, return_status=Fal
         return None
     return False
 
-def check_account(user_id, driver, areas, simple_log, max_attempts=50):
+def reset_device(driver, device_id, simple_log):
+    try:
+        if not simple_log:
+            print(f"[RESET] Resetting device {device_id}")
+        driver.app_start("com.higgs.domino")
+        time.sleep(2)
+        
+        for attempt in range(20):
+            driver.click(*TAP_ID_LOGIN)
+            time.sleep(0.5)
+            driver.click(*TAP_INPUT_ID)
+            time.sleep(0.5)
+            focused = driver(focused=True)
+            is_edit = focused.exists and ("EditText" in focused.info.get("className", "") or "TextInput" in focused.info.get("className", "") or focused.info.get("editable") is True)
+            if is_edit:
+                if not simple_log:
+                    print(f"[RESET] Device {device_id} is ready (attempt {attempt + 1})")
+                return True
+            if not simple_log:
+                print(f"[RESET] Attempt {attempt + 1}: EditText not found, retrying...")
+        return False
+    except Exception as e:
+        if not simple_log:
+            print(f"[ERROR] Failed to reset device {device_id}: {str(e)}")
+        return False
+
+def check_account(user_id, driver, areas, simple_log, max_attempts=50, check_edittext=True):
     running = [True]
     status = None
     
@@ -215,6 +242,9 @@ def check_account(user_id, driver, areas, simple_log, max_attempts=50):
             is_edit = focused.exists and ("EditText" in focused.info.get("className", "") or "TextInput" in focused.info.get("className", "") or focused.info.get("editable") is True)
         except Exception as e:
             raise Exception(f"Failed to check EditText: {str(e)}")
+        
+        if not is_edit and check_edittext:
+            return "NO_EDITTEXT"
         
         if is_edit:
             for _ in range(10):
@@ -417,40 +447,82 @@ def root():
 def process_request(user_id):
     device = None
     temp_file = proses_dir / f"{user_id}.tmp"
+    tried_devices = []
     
     try:
         temp_file.write_text(user_id)
         print(f"[API] Created temp file: {temp_file}")
         
-        device = get_available_device()
-        with device_pool_lock:
-            if device not in device_pool:
-                raise Exception("Device no longer available")
-        with device["lock"]:
-            if not device["busy"]:
-                device["busy"] = True
-                print(f"[API] Assigning userId {user_id} to device {device['id']} (Queue: {request_queue.qsize()} pending, Total devices: {len(device_pool)})")
+        max_retries = len(device_pool) * 2
+        status = None
+        result = None
         
-        try:
-            status = check_account(user_id, device["driver"], ocr_areas, SIMPLE_LOG)
-            result = {
-                "userId": user_id,
-                "status": status
-            }
-        finally:
-            with device_available:
-                device["busy"] = False
-                current_devices = get_all_devices()
-                if device["id"] not in current_devices:
-                    print(f"[API] Device {device['id']} no longer in ADB devices, removing from pool")
-                    with device_pool_lock:
-                        if device in device_pool:
-                            device_pool.remove(device)
-                        if device["id"] in device_locks:
-                            del device_locks[device["id"]]
-                else:
-                    print(f"[API] Device {device['id']} is now available")
-                device_available.notify()
+        for retry in range(max_retries):
+            device = get_available_device()
+            with device_pool_lock:
+                if device not in device_pool:
+                    if retry >= max_retries - 1:
+                        raise Exception("No available devices")
+                    continue
+                if device["id"] in tried_devices and len(tried_devices) >= len(device_pool):
+                    if retry >= max_retries - 1:
+                        raise Exception("All available devices tried")
+                    time.sleep(0.5)
+                    continue
+            
+            with device["lock"]:
+                if not device["busy"]:
+                    device["busy"] = True
+                    print(f"[API] Assigning userId {user_id} to device {device['id']} (Queue: {request_queue.qsize()} pending, Total devices: {len(device_pool)})")
+            
+            try:
+                status = check_account(user_id, device["driver"], ocr_areas, SIMPLE_LOG)
+                
+                if status == "NO_EDITTEXT":
+                    print(f"[API] Device {device['id']} tidak terdeteksi EditText, resetting...")
+                    tried_devices.append(device["id"])
+                    reset_success = reset_device(device["driver"], device["id"], SIMPLE_LOG)
+                    if reset_success:
+                        device["status"] = "ready"
+                        print(f"[API] Device {device['id']} reset berhasil, status: ready")
+                    else:
+                        print(f"[API] Device {device['id']} reset gagal")
+                    with device_available:
+                        device["busy"] = False
+                        device_available.notify()
+                    continue
+                
+                result = {
+                    "userId": user_id,
+                    "status": status
+                }
+                with device_available:
+                    device["busy"] = False
+                    current_devices = get_all_devices()
+                    if device["id"] not in current_devices:
+                        print(f"[API] Device {device['id']} no longer in ADB devices, removing from pool")
+                        with device_pool_lock:
+                            if device in device_pool:
+                                device_pool.remove(device)
+                            if device["id"] in device_locks:
+                                del device_locks[device["id"]]
+                    else:
+                        print(f"[API] Device {device['id']} is now available")
+                    device_available.notify()
+                break
+            except Exception as e:
+                error_msg = str(e)
+                print(f"[API] Error on device {device['id']}: {error_msg}")
+                tried_devices.append(device["id"])
+                with device_available:
+                    device["busy"] = False
+                    device_available.notify()
+                if retry >= max_retries - 1:
+                    raise Exception(f"Failed after {max_retries} attempts: {error_msg}")
+                continue
+        
+        if not result:
+            raise Exception("Failed to process request on all devices")
         
         if temp_file.exists():
             temp_file.unlink()
