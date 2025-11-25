@@ -206,20 +206,18 @@ def reset_device(driver, device_id, simple_log):
             print(f"[RESET] Resetting device {device_id}")
         driver.app_start("com.higgs.domino")
         time.sleep(2)
+        driver.click(*TAP_ID_LOGIN)
+        time.sleep(1)
         
-        for attempt in range(20):
-            driver.click(*TAP_ID_LOGIN)
-            time.sleep(0.5)
+        for attempt in range(10):
             driver.click(*TAP_INPUT_ID)
             time.sleep(0.5)
             focused = driver(focused=True)
             is_edit = focused.exists and ("EditText" in focused.info.get("className", "") or "TextInput" in focused.info.get("className", "") or focused.info.get("editable") is True)
             if is_edit:
                 if not simple_log:
-                    print(f"[RESET] Device {device_id} is ready (attempt {attempt + 1})")
+                    print(f"[RESET] Device {device_id} is ready")
                 return True
-            if not simple_log:
-                print(f"[RESET] Attempt {attempt + 1}: EditText not found, retrying...")
         return False
     except Exception as e:
         if not simple_log:
@@ -368,19 +366,11 @@ def connect_device(device_id):
         print(f"[ERROR] Failed to connect to {device_id}: {str(e)}")
         return False
 
-connect_threads = []
 for device_id in all_devices:
-    thread = threading.Thread(target=connect_device, args=(device_id,))
-    connect_threads.append(thread)
-    thread.start()
-
-for thread in connect_threads:
-    thread.join()
+    connect_device(device_id)
 
 if not device_pool:
     sys.exit("Gagal connect ke semua device.")
-
-print(f"[INIT] Successfully connected to {len(device_pool)} device(s)")
 
 def monitor_devices():
     while True:
